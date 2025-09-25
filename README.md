@@ -109,6 +109,7 @@ curl http://localhost:3000/health
 
 **Next Steps:**
 - Configure additional provider API keys
+- cp .env.template .env
 - Phase 2: Structured building with JSON build plans
 - Phase 3: Interactive feedback loops
 - Advanced wisdom engine with multi-provider learning
