@@ -1,0 +1,461 @@
+// src/core/meta-ai.js
+const DeepSeekClient = require('../api/deepseek-client');
+const CodeExecutor = require('./code-executor');
+
+class MetaAI {
+  constructor(apiKey) {
+    this.client = new DeepSeekClient(apiKey);
+    this.executor = new CodeExecutor();
+    
+    // Evolution tracking
+    this.generationHistory = [];
+    this.learnings = new Set();
+    this.currentTask = null;
+    
+    // Performance tracking
+    this.sessionStats = {
+      startTime: new Date(),
+      totalGenerations: 0,
+      successfulGenerations: 0,
+      averageImprovement: 0
+    };
+  }
+
+  async runEvolutionCycle(task, basePrompt, testInput, options = {}) {
+    const generation = this.generationHistory.length + 1;
+    const { maxRetries = 3, verbose = true } = options;
+    
+    if (verbose) {
+      console.log('\n' + '='.repeat(80));
+      console.log(`🧠 META-AI EVOLUTION - Generation ${generation}`);
+      console.log(`🎯 Task: ${task}`);
+      console.log(`🔬 Test Input: ${testInput}`);
+      console.log('='.repeat(80));
+    }
+    
+    this.currentTask = task;
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        attempt++;
+        
+        // Step 1: Evolve the prompt based on previous learnings
+        const evolvedPrompt = this.evolvePrompt(basePrompt, task);
+        
+        if (verbose) {
+          console.log(`\n📝 PROMPT EVOLUTION (Attempt ${attempt}):`);
+          console.log(`Original: ${basePrompt}`);
+          console.log(`Evolved: ${evolvedPrompt}`);
+        }
+        
+        // Step 2: Generate code using evolved prompt
+        const codeGeneration = await this.client.generateCode(evolvedPrompt, task);
+        
+        if (verbose) {
+          console.log(`\n🤖 CODE GENERATION:`);
+          console.log(`Request time: ${codeGeneration.requestTime}ms`);
+          console.log(`Tokens used: ${codeGeneration.tokensUsed}`);
+          console.log(`Generated code:\n${codeGeneration.code}`);
+        }
+        
+        // Step 3: Execute and measure performance
+        const executionResult = await this.executor.executeCode(
+          codeGeneration.code, 
+          task, 
+          testInput
+        );
+        
+        // Step 4: Comprehensive analysis
+        const performanceReport = this.executor.generatePerformanceReport(
+          codeGeneration.code,
+          executionResult,
+          task
+        );
+        
+        if (verbose) {
+          console.log(`\n📊 PERFORMANCE ANALYSIS:`);
+          console.log(`Overall Score: ${performanceReport.overallScore}%`);
+          console.log(`Algorithm: ${performanceReport.algorithm.complexity}`);
+          console.log(`Execution Time: ${performanceReport.execution.executionTime.toFixed(3)}ms`);
+          console.log(`Memory Used: ${(performanceReport.execution.memoryUsed / 1024).toFixed(2)}KB`);
+          console.log(`Code Quality: ${performanceReport.quality.overallScore}%`);
+        }
+        
+        // Step 5: Store generation data
+        const generationData = {
+          id: generation,
+          task,
+          attempt,
+          prompt: {
+            base: basePrompt,
+            evolved: evolvedPrompt,
+            improvements: this.getPromptImprovements(basePrompt, evolvedPrompt)
+          },
+          code: codeGeneration.code,
+          performance: performanceReport,
+          learnings: Array.from(this.learnings),
+          apiStats: {
+            requestTime: codeGeneration.requestTime,
+            tokensUsed: codeGeneration.tokensUsed
+          },
+          timestamp: new Date()
+        };
+        
+        this.generationHistory.push(generationData);
+        this.sessionStats.totalGenerations++;
+        
+        if (performanceReport.execution.success) {
+          this.sessionStats.successfulGenerations++;
+          
+          // Step 6: Learn from successful execution
+          await this.updateLearnings(generationData);
+          
+          if (verbose) {
+            console.log(`\n🎓 LEARNING UPDATE:`);
+            console.log(`New learnings: ${Array.from(this.learnings).join(', ')}`);
+            
+            const improvement = this.calculateGenerationImprovement();
+            if (improvement) {
+              console.log(`📈 Improvement over Generation 1: ${improvement.toFixed(1)}%`);
+            }
+          }
+          
+          return generationData;
+        } else {
+          if (verbose) {
+            console.log(`❌ Execution failed on attempt ${attempt}: ${performanceReport.execution.error}`);
+          }
+          
+          if (attempt >= maxRetries) {
+            throw new Error(`Failed to generate working code after ${maxRetries} attempts`);
+          }
+          
+          // Learn from failure to improve next attempt
+          this.learnings.add('avoid syntax errors and ensure complete function definitions');
+        }
+        
+      } catch (error) {
+        if (verbose) {
+          console.error(`❌ Evolution cycle failed on attempt ${attempt}:`, error.message);
+        }
+        
+        if (attempt >= maxRetries) {
+          throw error;
+        }
+        
+        // Brief delay before retry
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+  }
+
+  evolvePrompt(basePrompt, task) {
+    let evolvedPrompt = basePrompt;
+    
+    // Add task-specific optimizations
+    const taskOptimizations = this.getTaskOptimizations(task);
+    if (taskOptimizations.length > 0) {
+      evolvedPrompt += ` ${taskOptimizations.join(' ')}`;
+    }
+    
+    // Apply learnings from previous generations
+    const applicableLearnings = this.getApplicableLearnings(task);
+    if (applicableLearnings.length > 0) {
+      evolvedPrompt += ` Apply these proven techniques: ${applicableLearnings.slice(-3).join(', ')}.`;
+    }
+    
+    // Add performance guidance based on history
+    const performanceGuidance = this.getPerformanceGuidance();
+    if (performanceGuidance) {
+      evolvedPrompt += ` ${performanceGuidance}`;
+    }
+    
+    // Ensure clean output format
+    evolvedPrompt += ' Return only the complete function implementation without any explanations or markdown formatting.';
+    
+    return evolvedPrompt;
+  }
+
+  getTaskOptimizations(task) {
+    const optimizations = {
+      fibonacci: [
+        'Consider algorithmic complexity: O(2^n) recursive is inefficient, prefer O(n) iterative or memoized solutions.',
+        'Handle edge cases for n=0 and n=1.',
+        'Use integer arithmetic for better performance.'
+      ],
+      prime: [
+        'Optimize prime checking with square root limit: only check divisors up to √n.',
+        'Handle special cases: 2 is prime, even numbers > 2 are not prime.',
+        'Consider 6k±1 optimization for large numbers.'
+      ],
+      factorial: [
+        'Use iterative approach to avoid stack overflow for large inputs.',
+        'Handle edge case for n=0 (factorial is 1).',
+        'Consider using BigInt for very large factorials.'
+      ],
+      sorting: [
+        'Choose appropriate algorithm: quicksort for general use, counting sort for small ranges.',
+        'Consider input characteristics: nearly sorted, small arrays, etc.'
+      ]
+    };
+    
+    return optimizations[task] || [];
+  }
+
+  getApplicableLearnings(task) {
+    // Filter learnings that are applicable to the current task
+    const allLearnings = Array.from(this.learnings);
+    const taskSpecificLearnings = allLearnings.filter(learning => {
+      if (task === 'fibonacci') {
+        return learning.includes('memoiz') || learning.includes('iterative') || learning.includes('cache');
+      }
+      if (task === 'prime') {
+        return learning.includes('sqrt') || learning.includes('optimization') || learning.includes('efficient');
+      }
+      // General learnings apply to all tasks
+      return learning.includes('modern') || learning.includes('readable') || learning.includes('performance');
+    });
+    
+    return taskSpecificLearnings;
+  }
+
+  getPerformanceGuidance() {
+    if (this.generationHistory.length === 0) return null;
+    
+    const lastGeneration = this.generationHistory[this.generationHistory.length - 1];
+    const performance = lastGeneration.performance;
+    
+    const guidance = [];
+    
+    if (performance.execution.executionTime > 10) {
+      guidance.push('Prioritize algorithmic efficiency to reduce execution time.');
+    }
+    
+    if (performance.quality.overallScore < 60) {
+      guidance.push('Focus on code readability and proper variable naming.');
+    }
+    
+    if (performance.algorithm.score < 70) {
+      guidance.push('Consider more sophisticated algorithmic approaches.');
+    }
+    
+    return guidance.length > 0 ? guidance.join(' ') : null;
+  }
+
+  async updateLearnings(generationData) {
+    const { code, performance, task } = generationData;
+    
+    // Learn from high-performing code
+    if (performance.overallScore > 75) {
+      // Algorithmic learnings
+      if (code.includes('memo') || code.includes('cache')) {
+        this.learnings.add('memoization for recursive optimization');
+      }
+      
+      if (code.includes('for') && !code.includes(`${task}(`)) {
+        this.learnings.add('iterative approach for efficiency');
+      }
+      
+      if (code.includes('=>')) {
+        this.learnings.add('modern JavaScript arrow functions');
+      }
+      
+      if (code.includes('const ') || code.includes('let ')) {
+        this.learnings.add('modern variable declarations');
+      }
+      
+      // Task-specific learnings
+      if (task === 'prime' && performance.algorithm.complexity.includes('√n')) {
+        this.learnings.add('square root optimization for prime checking');
+      }
+      
+      if (task === 'fibonacci' && performance.execution.executionTime < 1) {
+        this.learnings.add('efficient fibonacci implementation patterns');
+      }
+      
+      if (performance.quality.structure.cyclomaticComplexity <= 3) {
+        this.learnings.add('maintain low complexity for readability');
+      }
+    }
+    
+    // Learn from poor performance to avoid mistakes
+    if (performance.overallScore < 50) {
+      if (code.includes(`${task}(`) && performance.execution.executionTime > 50) {
+        this.learnings.add('avoid naive recursive solutions for performance-critical tasks');
+      }
+    }
+  }
+
+  getPromptImprovements(basePrompt, evolvedPrompt) {
+    const baseLength = basePrompt.length;
+    const evolvedLength = evolvedPrompt.length;
+    const additions = evolvedPrompt.substring(baseLength).trim();
+    
+    return {
+      lengthIncrease: evolvedLength - baseLength,
+      addedInstructions: additions,
+      improvementCount: (additions.match(/\./g) || []).length
+    };
+  }
+
+  calculateGenerationImprovement() {
+    if (this.generationHistory.length < 2) return null;
+    
+    const firstGeneration = this.generationHistory[0];
+    const latestGeneration = this.generationHistory[this.generationHistory.length - 1];
+    
+    const firstScore = firstGeneration.performance.overallScore;
+    const latestScore = latestGeneration.performance.overallScore;
+    
+    return ((latestScore - firstScore) / firstScore) * 100;
+  }
+
+  getEvolutionSummary() {
+    if (this.generationHistory.length === 0) {
+      return { message: 'No evolution cycles completed yet.' };
+    }
+    
+    const firstGen = this.generationHistory[0];
+    const latestGen = this.generationHistory[this.generationHistory.length - 1];
+    
+    // Calculate improvements
+    const scoreImprovement = ((latestGen.performance.overallScore - firstGen.performance.overallScore) / firstGen.performance.overallScore) * 100;
+    const timeImprovement = firstGen.performance.execution.executionTime / latestGen.performance.execution.executionTime;
+    
+    // Algorithm evolution
+    const algorithmEvolution = `${firstGen.performance.algorithm.complexity} → ${latestGen.performance.algorithm.complexity}`;
+    
+    // Generation progression
+    const progression = this.generationHistory.map(gen => ({
+      id: gen.id,
+      score: gen.performance.overallScore,
+      executionTime: parseFloat(gen.performance.execution.executionTime.toFixed(3)),
+      algorithm: gen.performance.algorithm.complexity,
+      tokensUsed: gen.apiStats.tokensUsed
+    }));
+    
+    return {
+      task: this.currentTask,
+      totalGenerations: this.generationHistory.length,
+      successRate: (this.sessionStats.successfulGenerations / this.sessionStats.totalGenerations) * 100,
+      improvement: {
+        score: parseFloat(scoreImprovement.toFixed(1)),
+        performance: parseFloat(timeImprovement.toFixed(1)),
+        algorithm: algorithmEvolution
+      },
+      learnings: Array.from(this.learnings),
+      progression,
+      apiUsage: {
+        totalTokens: this.generationHistory.reduce((sum, gen) => sum + gen.apiStats.tokensUsed, 0),
+        averageTokensPerGeneration: Math.round(this.generationHistory.reduce((sum, gen) => sum + gen.apiStats.tokensUsed, 0) / this.generationHistory.length),
+        totalRequests: this.generationHistory.length
+      },
+      sessionDuration: Math.round((new Date() - this.sessionStats.startTime) / 1000) // in seconds
+    };
+  }
+
+  async runMultipleEvolutions(task, basePrompt, testInput, cycles = 5, options = {}) {
+    console.log(`\n🚀 STARTING MULTI-EVOLUTION SESSION`);
+    console.log(`Task: ${task}`);
+    console.log(`Cycles: ${cycles}`);
+    console.log(`Test Input: ${testInput}\n`);
+    
+    const results = [];
+    
+    for (let cycle = 1; cycle <= cycles; cycle++) {
+      try {
+        console.log(`\n🔄 Starting Evolution Cycle ${cycle}/${cycles}`);
+        
+        const result = await this.runEvolutionCycle(task, basePrompt, testInput, options);
+        results.push(result);
+        
+        // Brief pause between cycles for rate limiting
+        if (cycle < cycles) {
+          console.log(`⏳ Pausing for 2 seconds before next cycle...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+        
+      } catch (error) {
+        console.error(`❌ Evolution cycle ${cycle} failed:`, error.message);
+        results.push({ error: error.message, cycle });
+        
+        // Continue with next cycle unless it's a critical error
+        if (error.message.includes('API') && error.message.includes('limit')) {
+          console.log('🛑 API limit reached, stopping evolution session');
+          break;
+        }
+      }
+    }
+    
+    // Generate final summary
+    const summary = this.getEvolutionSummary();
+    
+    console.log('\n' + '='.repeat(80));
+    console.log('🎯 EVOLUTION SESSION COMPLETE');
+    console.log('='.repeat(80));
+    console.log(`📊 Total Generations: ${summary.totalGenerations}`);
+    console.log(`✅ Success Rate: ${summary.successRate.toFixed(1)}%`);
+    console.log(`📈 Score Improvement: ${summary.improvement.score}%`);
+    console.log(`⚡ Performance Gain: ${summary.improvement.performance.toFixed(1)}x faster`);
+    console.log(`🧠 Algorithm Evolution: ${summary.improvement.algorithm}`);
+    console.log(`🎓 Learnings Acquired: ${summary.learnings.length}`);
+    console.log(`🔢 API Usage: ${summary.apiUsage.totalTokens} tokens (${summary.apiUsage.totalRequests} requests)`);
+    console.log(`⏱️  Session Duration: ${summary.sessionDuration} seconds`);
+    
+    console.log('\n📈 Generation Progression:');
+    summary.progression.forEach(gen => {
+      console.log(`   G${gen.id}: ${gen.score}% (${gen.executionTime}ms) - ${gen.algorithm} [${gen.tokensUsed} tokens]`);
+    });
+    
+    console.log('\n🎓 Key Learnings:');
+    summary.learnings.forEach(learning => {
+      console.log(`   • ${learning}`);
+    });
+    
+    console.log('\n' + '='.repeat(80));
+    
+    return {
+      results,
+      summary,
+      successful: results.filter(r => !r.error).length,
+      failed: results.filter(r => r.error).length
+    };
+  }
+
+  // Reset system for new task or session
+  reset() {
+    this.generationHistory = [];
+    this.learnings = new Set();
+    this.currentTask = null;
+    this.sessionStats = {
+      startTime: new Date(),
+      totalGenerations: 0,
+      successfulGenerations: 0,
+      averageImprovement: 0
+    };
+    
+    console.log('🔄 Meta-AI system reset complete');
+  }
+
+  // Export learning data for analysis
+  exportLearnings() {
+    return {
+      learnings: Array.from(this.learnings),
+      generationHistory: this.generationHistory.map(gen => ({
+        id: gen.id,
+        task: gen.task,
+        score: gen.performance.overallScore,
+        algorithm: gen.performance.algorithm.complexity,
+        executionTime: gen.performance.execution.executionTime,
+        prompt: gen.prompt.evolved,
+        learnings: gen.learnings,
+        timestamp: gen.timestamp
+      })),
+      sessionStats: this.sessionStats,
+      exportTimestamp: new Date()
+    };
+  }
+}
+
+module.exports = MetaAI;

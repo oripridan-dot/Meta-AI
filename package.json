@@ -1,0 +1,18 @@
+{
+  "name": "meta-ai-local",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test:meta": "NODE_OPTIONS= node -r dotenv/config test/meta-ai-test.js",
+    "test:multi": "node test/multi-provider-test.js",
+    "test:health": "node test/multi-provider-test.js health",
+    "test:compare": "node test/multi-provider-test.js compare",
+    "test:keys": "node test-api-keys.js",
+    "demo": "node demo.js",
+    "demo:multi": "node multi-provider-demo.js",
+    "validate": "node validate-providers.js",
+    "quick": "node quick-test.js",
+    "api:start": "pm2 start ecosystem.config.js",
+    "api:restart": "pm2 restart meta-ai-api --update-env || pm2 start ecosystem.config.js"
+  }
+}
